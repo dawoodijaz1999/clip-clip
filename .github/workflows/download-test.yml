@@ -1,0 +1,9 @@
+name: download-test
+on: workflow_dispatch
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: pip install -U yt-dlp
+      - run: yt-dlp -f "bv*[height<=1080]+ba/b" --merge-output-format mp4 -o test.mp4 "https://www.youtube.com/watch?v=VAYrkZxpUc4"
+      - run: ls -lh test.mp4 && ffprobe -v error -show_entries stream=width,height -of csv=p=0 test.mp4
