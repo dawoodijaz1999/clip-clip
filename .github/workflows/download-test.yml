@@ -3,7 +3,15 @@ on: workflow_dispatch
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        client: [default, tv, mweb, web_safari, android_vr]
     steps:
-      - run: pip install -U yt-dlp
-      - run: yt-dlp -f "bv*[height<=1080]+ba/b" --merge-output-format mp4 -o test.mp4 "https://www.youtube.com/watch?v=VAYrkZxpUc4"
-      - run: ls -lh test.mp4 && ffprobe -v error -show_entries stream=width,height -of csv=p=0 test.mp4
+      - uses: denoland/setup-deno@v2
+      - run: pip install -U "yt-dlp[default]"
+      - run: |
+          ARGS=""
+          if [ "${{ matrix.client }}" != "default" ]; then ARGS="--extractor-args youtube:player_client=${{ matrix.client }}"; fi
+          yt-dlp $ARGS -f "bv*[height<=1080]+ba/b" --merge-output-format mp4 -o test.mp4 "https://www.youtube.com/watch?v=VAYrkZxpUc4" --download-sections "*0:00-0:30"
+          ls -lh test.mp4
