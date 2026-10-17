@@ -1,0 +1,37 @@
+name: clip
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: clip
+  cancel-in-progress: false
+env:
+  DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+  DISCORD_CHANNEL_ID: "1561104377710772516"
+jobs:
+  clip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q requests
+      - id: check
+        run: python clip.py --check
+      - if: steps.check.outputs.has_work == 'true'
+        uses: denoland/setup-deno@v2
+      - if: steps.check.outputs.has_work == 'true'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          pip install -q -r requirements.txt
+      - if: steps.check.outputs.has_work == 'true'
+        run: python clip.py
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+          GH_TOKEN: ${{ github.token }}
