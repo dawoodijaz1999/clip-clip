@@ -1,7 +1,6 @@
 name: clip
+# Runs on the PC now (clip.py --watch). Manual cloud run kept as a backup; needs YT_COOKIES.
 on:
-  schedule:
-    - cron: "*/10 * * * *"
   workflow_dispatch:
 permissions:
   contents: write

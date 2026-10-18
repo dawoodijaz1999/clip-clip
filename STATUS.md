@@ -10,7 +10,7 @@
 - Local `clip.py --local` on U65nZIA0QhM (7 min): 5 clips, 1080x1920, 31-59s, hooks + captions OK, 12 min with preset slow (now medium).
 
 ## Left
-- Push this commit to GitHub (needs user approval).
-- User adds secrets: DISCORD_BOT_TOKEN, GEMINI_API_KEY, YT_COOKIES.
+- Cloud workflow is manual-only (YouTube blocks GitHub without cookies).
+- PC mode: systemd user service clip-clip (auto-starts at login), secrets in local .env. User must paste DISCORD_BOT_TOKEN into .env.
 - First real run on Actions with cookies; Discord posting not yet tested live.
 - Scheduled workflows in public repos pause after 60 days without commits.

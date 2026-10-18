@@ -3,6 +3,7 @@
 Run modes:
   python clip.py --check            # GitHub Actions: is there a new link to process?
   python clip.py                    # GitHub Actions: process new links, reply in Discord
+  python clip.py --watch            # PC mode: keep checking Discord every 30s (auto-start service)
   python clip.py --local <url>      # local test: make clips into ./out, no Discord/GitHub
 """
 import json
@@ -29,6 +30,18 @@ MAX_LINKS_PER_RUN = 2
 KEEP_DAYS = 7
 GEMINI_MODELS = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.0-flash"]
 WORK_DIR = Path("work")
+DEFAULT_REPO = "dawoodijaz1999/clip-clip"
+POLL_SECONDS = 30
+
+
+def _load_env(path=Path(__file__).with_name(".env")):
+    """Read KEY=VALUE lines from .env (PC mode); real environment variables win."""
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        if "=" in line and not line.lstrip().startswith("#"):
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
 # ---------------------------------------------------------------- Discord
@@ -245,9 +258,9 @@ def make_clips(video_id, work):
 # ---------------------------------------------------------------- GitHub release hosting
 
 def publish(tag, title, files):
-    repo = os.environ["GITHUB_REPOSITORY"]
+    repo = os.environ.get("GITHUB_REPOSITORY", DEFAULT_REPO)
     subprocess.run(
-        ["gh", "release", "create", tag, *[str(f) for f, _ in files],
+        ["gh", "release", "create", tag, "-R", repo, *[str(f) for f, _ in files],
          "--title", title[:100], "--notes", "Auto clips. Deleted after 7 days."],
         check=True,
     )
@@ -255,7 +268,8 @@ def publish(tag, title, files):
 
 
 def cleanup_old_releases():
-    out = subprocess.run(["gh", "release", "list", "--limit", "100", "--json", "tagName,createdAt"],
+    repo = os.environ.get("GITHUB_REPOSITORY", DEFAULT_REPO)
+    out = subprocess.run(["gh", "release", "list", "-R", repo, "--limit", "100", "--json", "tagName,createdAt"],
                          capture_output=True, text=True)
     if out.returncode != 0:
         return
@@ -263,7 +277,7 @@ def cleanup_old_releases():
     for rel in json.loads(out.stdout or "[]"):
         created = datetime.fromisoformat(rel["createdAt"].replace("Z", "+00:00"))
         if rel["tagName"].startswith("clips-") and created < cutoff:
-            subprocess.run(["gh", "release", "delete", rel["tagName"], "--cleanup-tag", "-y"])
+            subprocess.run(["gh", "release", "delete", rel["tagName"], "-R", repo, "--cleanup-tag", "-y"])
 
 
 # ---------------------------------------------------------------- Main
@@ -307,8 +321,29 @@ def process(msg_id, video_id):
         shutil.rmtree(work, ignore_errors=True)
 
 
+def watch():
+    """PC mode: keep checking Discord and process links as they arrive."""
+    print("clip-clip is watching Discord...", flush=True)
+    last_cleanup = 0.0
+    while True:
+        try:
+            for msg_id, video_id in pending_jobs():
+                process(msg_id, video_id)
+            if time.time() - last_cleanup > 3600:
+                cleanup_old_releases()
+                last_cleanup = time.time()
+        except Exception as e:  # network hiccup etc. - keep running
+            print(f"watch error: {e}", file=sys.stderr, flush=True)
+        time.sleep(POLL_SECONDS)
+
+
 def main():
+    _load_env()
+    os.chdir(Path(__file__).parent)
     args = sys.argv[1:]
+    if args[:1] == ["--watch"]:
+        watch()
+        return
     if args[:1] == ["--local"]:
         video_id = YT_RE.search(args[1]).group(1)
         title, files = make_clips(video_id, Path("out") / video_id)
