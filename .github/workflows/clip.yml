@@ -33,6 +33,7 @@ jobs:
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
           TEST_URL: ${{ inputs.test_url }}
         run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
           pip install -q -U "yt-dlp[default]"
           printf '%s\n' "$YT_COOKIES" > cookies.txt
           yt-dlp --cookies cookies.txt -f "bv*[height<=1080]+ba/b" --download-sections "*0-20" -o test.mp4 "$TEST_URL"
