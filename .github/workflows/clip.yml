@@ -2,6 +2,11 @@ name: clip
 # Runs on the PC now (clip.py --watch). Manual cloud run kept as a backup; needs YT_COOKIES.
 on:
   workflow_dispatch:
+    inputs:
+      test_url:
+        description: "Only test downloading this YouTube link (checks the cookies)"
+        required: false
+        default: ""
 permissions:
   contents: write
 concurrency:
@@ -20,7 +25,20 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -q requests
+      - if: inputs.test_url != ''
+        uses: denoland/setup-deno@v2
+      - if: inputs.test_url != ''
+        name: Test download with cookies
+        env:
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+          TEST_URL: ${{ inputs.test_url }}
+        run: |
+          pip install -q -U "yt-dlp[default]"
+          printf '%s\n' "$YT_COOKIES" > cookies.txt
+          yt-dlp --cookies cookies.txt -f "bv*[height<=1080]+ba/b" --download-sections "*0-20" -o test.mp4 "$TEST_URL"
+          ls -lh test.mp4
       - id: check
+        if: inputs.test_url == ''
         run: python clip.py --check
       - if: steps.check.outputs.has_work == 'true'
         uses: denoland/setup-deno@v2
