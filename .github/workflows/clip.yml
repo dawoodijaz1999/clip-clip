@@ -37,7 +37,7 @@ jobs:
           pip install -q -U "yt-dlp[default]"
           printf '%s\n' "$YT_COOKIES" > cookies.txt
           yt-dlp --cookies cookies.txt -f "bv*[height<=1080]+ba/b" --download-sections "*0-20" -o test.mp4 "$TEST_URL"
-          ls -lh test.mp4
+          ls -lh test.*
       - id: check
         if: inputs.test_url == ''
         run: python clip.py --check

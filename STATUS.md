@@ -19,3 +19,4 @@
 - 403 on download: yt-dlp needs a JS runtime (PC Node 18 too old). Installed `deno` via pip into .venv, clip.py passes it as js_runtimes; added 10 MB chunked downloads, retries, one retry on 403.
 - Re-queued the failed link XV4KSC5nmL0 by clearing the bot's fail mark.
 - Service now runs `pip install -U "yt-dlp[default]"` before every start (skipped if offline); yt-dlp 2026.08.19 is current.
+- 2026-10-19: YT_COOKIES (throwaway account), DISCORD_BOT_TOKEN, GEMINI_API_KEY added as repo secrets. Cloud cookie test downloaded 20s of a Rajab vlog OK. Manual workflow has a test_url input to check cookies.
