@@ -103,14 +103,32 @@ def download(video_id, dest):
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
+        "noprogress": True,
+        "http_chunk_size": 10 * 1024 * 1024,  # small pieces avoid YouTube's mid-download 403s
+        "retries": 10,
+        "fragment_retries": 10,
     }
+    deno = shutil.which("deno") or str(Path(sys.executable).with_name("deno"))
+    if Path(deno).exists():
+        opts["js_runtimes"] = {"deno": {"path": deno}}  # YouTube needs a JS runtime for its download checks
     cookies = os.environ.get("YT_COOKIES", "").strip()
     if cookies:
         cpath = dest / "cookies.txt"
         cpath.write_text(cookies + "\n")
         opts["cookiefile"] = str(cpath)
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=True)
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+    except yt_dlp.utils.DownloadError as e:
+        if "403" not in str(e):
+            raise
+        # 403s are often temporary; retry once with fresh URLs
+        for leftover in dest.glob("src.*"):
+            leftover.unlink()
+        time.sleep(10)
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
     src = next(dest.glob("src.*"))
     return src, info.get("title", video_id), float(info.get("duration") or _duration(src))
 

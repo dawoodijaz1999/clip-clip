@@ -14,3 +14,7 @@
 - PC mode: systemd user service clip-clip (auto-starts at login), secrets in local .env. User must paste DISCORD_BOT_TOKEN into .env.
 - First real run on Actions with cookies; Discord posting not yet tested live.
 - Scheduled workflows in public repos pause after 60 days without commits.
+
+## 2026-10-19 fix
+- 403 on download: yt-dlp needs a JS runtime (PC Node 18 too old). Installed `deno` via pip into .venv, clip.py passes it as js_runtimes; added 10 MB chunked downloads, retries, one retry on 403.
+- Re-queued the failed link XV4KSC5nmL0 by clearing the bot's fail mark.
