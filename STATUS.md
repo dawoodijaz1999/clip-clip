@@ -35,3 +35,4 @@ In daily personal use. Discord posting is tested live (PC mode, multiple videos)
 - README rewritten for clients/recruiters.
 - Tests: `--local` on a 2-min sample file -> 3 clips 1080x1920, 30-32 s, Gemini hooks/captions OK (7 min). `download_file` against a local server: good file OK, attachment name kept, HTML page / 404 / 5 s video / fake file / over-limit all give the right user error.
 - PC service restarted on the new code.
+- 2026-10-21: when Gemini fails (including the audio upload), clips use a basic caption "<title> 🔥 #viral #foryou #fyp #pakistan #trending" and Discord gets a warning that the AI step failed. Tested with an invalid key.

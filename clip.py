@@ -284,12 +284,16 @@ def find_moments(src, title, duration, work):
         check=True,
     )
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    uploaded = client.files.upload(file=str(audio))
-    for _ in range(60):
-        if uploaded.state.name != "PROCESSING":
-            break
-        time.sleep(5)
-        uploaded = client.files.get(name=uploaded.name)
+    try:
+        uploaded = client.files.upload(file=str(audio))
+        for _ in range(60):
+            if uploaded.state.name != "PROCESSING":
+                break
+            time.sleep(5)
+            uploaded = client.files.get(name=uploaded.name)
+    except Exception as e:  # bad key, quota, network: still make clips
+        print(f"Gemini upload failed, using evenly spaced clips: {str(e)[:200]}", file=sys.stderr, flush=True)
+        return _evenly_spaced(title, duration)
 
     prompt = PROMPT.format(title=title, mins=round(duration / 60), n=CLIPS_PER_VIDEO,
                            min_len=MIN_LEN, max_len=MAX_LEN)
@@ -334,12 +338,19 @@ def _clean(raw, duration):
     return clips[:CLIPS_PER_VIDEO]
 
 
+FALLBACK_HASHTAGS = "#viral #foryou #fyp #pakistan #trending"
+
+
 def _evenly_spaced(title, duration):
+    """Used when Gemini fails: evenly spaced clips with a basic hook and caption."""
     length = 45
     step = duration / (CLIPS_PER_VIDEO + 1)
-    hook = re.sub(r"[^\w\s]", "", title).strip()[:28]
+    clean_title = " ".join(re.sub(r"[^\w\s]", " ", title).split())
+    hook = clean_title[:28]
+    caption = f"{clean_title[:100]} 🔥 {FALLBACK_HASHTAGS}".strip()
     return [
-        {"start": step * (i + 1), "end": min(step * (i + 1) + length, duration), "hook": hook, "caption": ""}
+        {"start": step * (i + 1), "end": min(step * (i + 1) + length, duration),
+         "hook": hook, "caption": caption, "fallback": True}
         for i in range(CLIPS_PER_VIDEO)
         if step * (i + 1) + MIN_LEN <= duration
     ]
@@ -458,6 +469,9 @@ def process(job):
             raise RuntimeError("no clips could be made from this video")
         links = publish(f"clips-{msg_id}", title, files)
         _say(f"**{title}**\n{len(files)} clips ready (1080x1920). Tap a link to download:", reply_to=msg_id)
+        if any(clip.get("fallback") for _, clip in files):
+            _say("⚠️ The AI step failed for this video, so these clips are evenly spaced (not the best "
+                 "moments) and use a basic caption. Paste the link again later to retry with AI.")
         for i, ((path, clip), url) in enumerate(zip(files, links), 1):
             _say(
                 f"**Clip {i}** ({_fmt(clip['start'])}-{_fmt(clip['end'])}) - {clip['hook']}\n"
