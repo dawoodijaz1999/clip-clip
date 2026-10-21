@@ -1,10 +1,13 @@
-"""clip-clip: YouTube link in Discord -> 5 vertical TikTok clips with a hook line.
+"""clip-clip: video in Discord -> 5 vertical TikTok clips with a hook line.
+
+Inputs: a YouTube link, a video attachment (mp4/mov/mkv/webm), or a public
+Google Drive / Dropbox share link to a video.
 
 Run modes:
-  python clip.py --check            # GitHub Actions: is there a new link to process?
-  python clip.py                    # GitHub Actions: process new links, reply in Discord
-  python clip.py --watch            # PC mode: keep checking Discord every 30s (auto-start service)
-  python clip.py --local <url>      # local test: make clips into ./out, no Discord/GitHub
+  python clip.py --check                 # GitHub Actions: is there new work?
+  python clip.py                         # GitHub Actions: process new work, reply in Discord
+  python clip.py --watch                 # PC mode: keep checking Discord every 30s (auto-start service)
+  python clip.py --local <url-or-path>   # local test: make clips into ./out, no Discord/GitHub
 """
 import json
 import os
@@ -23,12 +26,24 @@ API = "https://discord.com/api/v10"
 YT_RE = re.compile(
     r"https?://(?:www\.|m\.)?(?:youtube\.com/(?:watch\?(?:\S*&)?v=|shorts/|live/)|youtu\.be/)([\w-]{11})"
 )
+DRIVE_RE = re.compile(
+    r"https?://(?:drive|docs)\.google\.com/(?:file/d/|open\?(?:\S*&)?id=|uc\?(?:\S*&)?id=)([\w-]{20,})"
+)
+DROPBOX_RE = re.compile(r"https?://(?:www\.)?dropbox\.com/(?:s|scl/fi|sh)/[^\s<>]+")
+VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm"}
+MAX_FILE_MB = 500
 DONE, FAIL, WORK = "✅", "❌", "⏳"
+WORKING_TEXT = "Working on it"
+LOCK_HOURS = 2  # a ⏳ older than this (crashed run) is retried
 CLIPS_PER_VIDEO = 5
 MIN_LEN, MAX_LEN = 30, 60
 MAX_LINKS_PER_RUN = 2
 KEEP_DAYS = 7
-GEMINI_MODELS = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.0-flash"]
+GEMINI_MODELS = ["gemini-flash-latest", "gemini-flash-latest", "gemini-3.5-flash", "gemini-flash-lite-latest"]
+
+
+class UserError(Exception):
+    """A problem with the input that should be shown to the user as-is."""
 WORK_DIR = Path("work")
 DEFAULT_REPO = "dawoodijaz1999/clip-clip"
 POLL_SECONDS = 30
@@ -74,9 +89,48 @@ def _say(text, reply_to=None):
     _discord("POST", f"/channels/{_channel()}/messages", json=body)
 
 
+def _job_from_message(m):
+    """Turn a Discord message into a job dict, or None if it has nothing to clip.
+
+    Order: video attachment, then Drive/Dropbox link, then YouTube link.
+    Unsupported or oversized attachments become an "error" job so the user gets a reply.
+    """
+    content = m.get("content", "")
+    attachments = m.get("attachments", [])
+    for a in attachments:
+        if Path(a["filename"]).suffix.lower() in VIDEO_EXTS:
+            if a.get("size", 0) > MAX_FILE_MB * 1024 * 1024:
+                return {"kind": "error", "error": f"That file is over {MAX_FILE_MB} MB. Send a shorter or smaller video."}
+            return {"kind": "file", "url": a["url"], "name": a["filename"], "key": m["id"]}
+    if match := DRIVE_RE.search(content):
+        return {"kind": "file", "url": drive_direct_url(match.group(1)), "name": "", "key": m["id"]}
+    if match := DROPBOX_RE.search(content):
+        return {"kind": "file", "url": dropbox_direct_url(match.group(0)), "name": "", "key": m["id"]}
+    if match := YT_RE.search(content):
+        return {"kind": "youtube", "video_id": match.group(1), "key": match.group(1)}
+    if attachments:
+        exts = ", ".join(sorted(VIDEO_EXTS))
+        return {"kind": "error", "error": f"Unsupported file type. Send a video ({exts}) or a YouTube/Drive/Dropbox link."}
+    return None
+
+
+def _ts(m):
+    return datetime.fromisoformat(m["timestamp"])
+
+
 def pending_jobs():
-    """Messages with a YouTube link that the bot has not marked done/failed, oldest first."""
+    """Messages with work the bot has not marked done/failed, oldest first.
+
+    A ⏳ from the bot means another instance (PC or cloud) is on it; skip it unless the
+    bot's "Working on it" reply is older than LOCK_HOURS (that run crashed).
+    """
     msgs = _discord("GET", f"/channels/{_channel()}/messages?limit=50") or []
+    started = {}
+    for m in msgs:
+        ref = (m.get("message_reference") or {}).get("message_id")
+        if m["author"].get("bot") and ref and m.get("content", "").startswith(WORKING_TEXT):
+            started[ref] = max(started.get(ref, _ts(m)), _ts(m))
+    stale = datetime.now(timezone.utc) - timedelta(hours=LOCK_HOURS)
     jobs = []
     for m in reversed(msgs):
         if m["author"].get("bot"):
@@ -84,10 +138,69 @@ def pending_jobs():
         mine = {r["emoji"]["name"] for r in m.get("reactions", []) if r.get("me")}
         if DONE in mine or FAIL in mine:
             continue
-        match = YT_RE.search(m.get("content", ""))
-        if match:
-            jobs.append((m["id"], match.group(1)))
+        if WORK in mine and started.get(m["id"], _ts(m)) > stale:
+            continue
+        job = _job_from_message(m)
+        if job:
+            job["msg_id"] = m["id"]
+            jobs.append(job)
     return jobs
+
+
+# ---------------------------------------------------------------- File links
+
+def drive_direct_url(file_id):
+    return f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t"
+
+
+def dropbox_direct_url(url):
+    parts = urllib.parse.urlsplit(url)
+    query = [(k, v) for k, v in urllib.parse.parse_qsl(parts.query) if k not in ("dl", "raw")]
+    query.append(("dl", "1"))
+    return urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(query)))
+
+
+def _filename_from(resp, fallback):
+    cd = resp.headers.get("Content-Disposition", "")
+    match = re.search(r"filename\*=UTF-8''([^;]+)", cd) or re.search(r'filename="?([^";]+)"?', cd)
+    return urllib.parse.unquote(match.group(1)) if match else fallback
+
+
+def download_file(url, dest, name=""):
+    """Download a direct video URL (Discord attachment, Drive, Dropbox) to dest/src.<ext>."""
+    dest.mkdir(parents=True, exist_ok=True)
+    limit = MAX_FILE_MB * 1024 * 1024
+    with requests.get(url, stream=True, timeout=60, allow_redirects=True) as r:
+        if r.status_code in (401, 403, 404) or "text/html" in r.headers.get("Content-Type", ""):
+            raise UserError("Couldn't download that file. Make sure the link is shared as "
+                            "'Anyone with the link' and points to a single video file.")
+        r.raise_for_status()
+        if int(r.headers.get("Content-Length") or 0) > limit:
+            raise UserError(f"That file is over {MAX_FILE_MB} MB. Send a shorter or smaller video.")
+        url_name = urllib.parse.unquote(Path(urllib.parse.urlsplit(r.url).path).name)
+        name = name or _filename_from(r, url_name if Path(url_name).suffix else "video.mp4")
+        ext = Path(name).suffix.lower()
+        if ext not in VIDEO_EXTS:
+            raise UserError(f"Unsupported file type ({ext or 'unknown'}). Send an mp4, mov, mkv or webm video.")
+        src = dest / f"src{ext}"
+        size = 0
+        with open(src, "wb") as fh:
+            for chunk in r.iter_content(1024 * 1024):
+                size += len(chunk)
+                if size > limit:
+                    raise UserError(f"That file is over {MAX_FILE_MB} MB. Send a shorter or smaller video.")
+                fh.write(chunk)
+    return src, Path(name).stem, _checked_duration(src)
+
+
+def _checked_duration(src):
+    try:
+        duration = _duration(src)
+    except (subprocess.CalledProcessError, ValueError):
+        raise UserError("That file isn't a playable video.")
+    if duration < MIN_LEN:
+        raise UserError(f"That video is only {int(duration)}s long; it needs to be at least {MIN_LEN}s.")
+    return duration
 
 
 # ---------------------------------------------------------------- Download
@@ -192,8 +305,10 @@ def find_moments(src, title, duration, work):
                 clips = _clean(json.loads(resp.text).get("clips", []), duration)
                 if clips:
                     return clips
-            except Exception as e:  # try the next model
+            except Exception as e:  # retry / try the next model
                 last_err = e
+                print(f"Gemini {model} failed: {str(e)[:200]}", file=sys.stderr, flush=True)
+                time.sleep(15)
     finally:
         try:
             client.files.delete(name=uploaded.name)
@@ -262,12 +377,25 @@ def render(src, clip, out_path, work):
     )
 
 
-def make_clips(video_id, work):
-    src, title, duration = download(video_id, work)
+def get_source(job, work):
+    """Fetch the job's video into work/ and return (src, title, duration)."""
+    if job["kind"] == "youtube":
+        return download(job["video_id"], work)
+    if job["kind"] == "path":
+        work.mkdir(parents=True, exist_ok=True)
+        src = Path(job["path"])
+        if src.suffix.lower() not in VIDEO_EXTS:
+            raise UserError(f"Unsupported file type ({src.suffix or 'unknown'}).")
+        return src, src.stem, _checked_duration(src)
+    return download_file(job["url"], work, job.get("name", ""))
+
+
+def make_clips(job, work):
+    src, title, duration = get_source(job, work)
     moments = find_moments(src, title, duration, work)
     files = []
     for i, clip in enumerate(moments, 1):
-        out = work / f"{video_id}_clip{i}.mp4"
+        out = work / f"{job['key']}_clip{i}.mp4"
         render(src, clip, out, work)
         files.append((out, clip))
     return title, files
@@ -305,6 +433,8 @@ def _fmt(sec):
 
 
 def _error_text(e):
+    if isinstance(e, UserError):
+        return str(e)
     text = str(e)
     if "Sign in to confirm" in text or "cookies" in text.lower():
         return "YouTube blocked the download. The YT_COOKIES secret has probably expired - export fresh cookies and update it."
@@ -313,12 +443,17 @@ def _error_text(e):
     return f"Something went wrong: {text[:300]}"
 
 
-def process(msg_id, video_id):
-    work = WORK_DIR / video_id
+def process(job):
+    msg_id = job["msg_id"]
+    if job["kind"] == "error":
+        _say(f"{FAIL} {job['error']}", reply_to=msg_id)
+        _react(msg_id, FAIL)
+        return
+    work = WORK_DIR / job["key"]
     _react(msg_id, WORK)
-    _say("Working on it... clips in about 10-20 minutes.", reply_to=msg_id)
+    _say(f"{WORKING_TEXT}... clips in about 10-20 minutes.", reply_to=msg_id)
     try:
-        title, files = make_clips(video_id, work)
+        title, files = make_clips(job, work)
         if not files:
             raise RuntimeError("no clips could be made from this video")
         links = publish(f"clips-{msg_id}", title, files)
@@ -331,7 +466,7 @@ def process(msg_id, video_id):
             )
         _react(msg_id, DONE)
     except Exception as e:
-        print(f"Failed {video_id}: {e}", file=sys.stderr)
+        print(f"Failed {job['key']}: {e}", file=sys.stderr)
         _say(f"{FAIL} {_error_text(e)}", reply_to=msg_id)
         _react(msg_id, FAIL)
     finally:
@@ -345,14 +480,25 @@ def watch():
     last_cleanup = 0.0
     while True:
         try:
-            for msg_id, video_id in pending_jobs():
-                process(msg_id, video_id)
+            for job in pending_jobs():
+                process(job)
             if time.time() - last_cleanup > 3600:
                 cleanup_old_releases()
                 last_cleanup = time.time()
         except Exception as e:  # network hiccup etc. - keep running
             print(f"watch error: {e}", file=sys.stderr, flush=True)
         time.sleep(POLL_SECONDS)
+
+
+def _local_job(arg):
+    """--local accepts a YouTube/Drive/Dropbox/direct URL or a local file path."""
+    path = Path(arg).expanduser()
+    if path.exists():
+        return {"kind": "path", "path": str(path.resolve()), "key": re.sub(r"\W", "_", path.stem)[:40]}
+    job = _job_from_message({"id": "local", "content": arg})
+    if job:
+        return job
+    return {"kind": "file", "url": arg, "name": "", "key": "local"}
 
 
 def main():
@@ -363,8 +509,8 @@ def main():
         watch()
         return
     if args[:1] == ["--local"]:
-        video_id = YT_RE.search(args[1]).group(1)
-        title, files = make_clips(video_id, Path("out") / video_id)
+        job = _local_job(args[1])
+        title, files = make_clips(job, Path("out") / job["key"])
         print(title)
         for f, c in files:
             print(f"{f}  {_fmt(c['start'])}-{_fmt(c['end'])}  {c['hook']}  |  {c['caption']}")
@@ -376,8 +522,8 @@ def main():
             with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
                 fh.write(f"has_work={'true' if has_work else 'false'}\n")
         return
-    for msg_id, video_id in pending_jobs()[:MAX_LINKS_PER_RUN]:
-        process(msg_id, video_id)
+    for job in pending_jobs()[:MAX_LINKS_PER_RUN]:
+        process(job)
     cleanup_old_releases()
 
 

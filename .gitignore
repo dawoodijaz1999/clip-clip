@@ -1,5 +1,21 @@
+# local secrets
+.env
+cookies.txt
+cookies*.txt
+*cookies*.txt
+
+# working / output files
 work/
 out/
+test.*
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.mp3
+*.m4a
+
+# python
 .venv/
 __pycache__/
-.env
+*.pyc
