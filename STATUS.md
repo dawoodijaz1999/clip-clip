@@ -36,3 +36,8 @@ In daily personal use. Discord posting is tested live (PC mode, multiple videos)
 - Tests: `--local` on a 2-min sample file -> 3 clips 1080x1920, 30-32 s, Gemini hooks/captions OK (7 min). `download_file` against a local server: good file OK, attachment name kept, HTML page / 404 / 5 s video / fake file / over-limit all give the right user error.
 - PC service restarted on the new code.
 - 2026-10-21: when Gemini fails (including the audio upload), clips use a basic caption "<title> 🔥 #viral #foryou #fyp #pakistan #trending" and Discord gets a warning that the AI step failed. Tested with an invalid key.
+
+## 2026-10-31
+- Bug: clip links returned 404. cleanup_old_releases used the release createdAt, which GitHub sets to the date of the commit the tag points to (2026-10-21), so every new release looked >7 days old and was deleted on the next cleanup (cloud: same run; PC: within the hour). Now uses publishedAt. Verified with a temporary release: kept, link HTTP 200, then removed.
+- Clips from 2026-10-26..29 were deleted and cannot be recovered; re-send those links to regenerate.
+- Delay: the 2026-10-29 link was picked up 3 h later by the cloud schedule (GitHub free-tier delay); use Run workflow for speed.

@@ -426,14 +426,18 @@ def publish(tag, title, files):
 
 def cleanup_old_releases():
     repo = os.environ.get("GITHUB_REPOSITORY", DEFAULT_REPO)
-    out = subprocess.run(["gh", "release", "list", "-R", repo, "--limit", "100", "--json", "tagName,createdAt"],
+    # publishedAt, not createdAt: a release's createdAt is the date of the commit its tag
+    # points to, so new releases looked weeks old and were deleted right after posting.
+    out = subprocess.run(["gh", "release", "list", "-R", repo, "--limit", "100", "--json", "tagName,publishedAt"],
                          capture_output=True, text=True)
     if out.returncode != 0:
         return
     cutoff = datetime.now(timezone.utc) - timedelta(days=KEEP_DAYS)
     for rel in json.loads(out.stdout or "[]"):
-        created = datetime.fromisoformat(rel["createdAt"].replace("Z", "+00:00"))
-        if rel["tagName"].startswith("clips-") and created < cutoff:
+        if not rel.get("publishedAt"):
+            continue
+        published = datetime.fromisoformat(rel["publishedAt"].replace("Z", "+00:00"))
+        if rel["tagName"].startswith("clips-") and published < cutoff:
             subprocess.run(["gh", "release", "delete", rel["tagName"], "-R", repo, "--cleanup-tag", "-y"])
 
 
