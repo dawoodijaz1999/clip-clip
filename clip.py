@@ -39,7 +39,8 @@ CLIPS_PER_VIDEO = 5
 MIN_LEN, MAX_LEN = 30, 60
 MAX_LINKS_PER_RUN = 2
 KEEP_DAYS = 7
-GEMINI_MODELS = ["gemini-flash-latest", "gemini-flash-latest", "gemini-3.5-flash", "gemini-flash-lite-latest"]
+GEMINI_MODELS = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-flash-lite-latest"]
+GEMINI_WAITS = [20, 40, 80, 160, 300, 300]  # seconds between attempts (~15 min in total)
 
 
 class UserError(Exception):
@@ -284,22 +285,32 @@ def find_moments(src, title, duration, work):
         check=True,
     )
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    try:
-        uploaded = client.files.upload(file=str(audio))
-        for _ in range(60):
-            if uploaded.state.name != "PROCESSING":
-                break
-            time.sleep(5)
-            uploaded = client.files.get(name=uploaded.name)
-    except Exception as e:  # bad key, quota, network: still make clips
-        print(f"Gemini upload failed, using evenly spaced clips: {str(e)[:200]}", file=sys.stderr, flush=True)
+    uploaded = None
+    for wait in (30, 60, 0):
+        try:
+            uploaded = client.files.upload(file=str(audio))
+            for _ in range(60):
+                if uploaded.state.name != "PROCESSING":
+                    break
+                time.sleep(5)
+                uploaded = client.files.get(name=uploaded.name)
+            break
+        except Exception as e:  # bad key, quota, network
+            print(f"Gemini upload failed: {str(e)[:200]}", file=sys.stderr, flush=True)
+            uploaded = None
+            time.sleep(wait)
+    if uploaded is None:
+        print("Gemini upload failed, using evenly spaced clips", file=sys.stderr, flush=True)
         return _evenly_spaced(title, duration)
 
     prompt = PROMPT.format(title=title, mins=round(duration / 60), n=CLIPS_PER_VIDEO,
                            min_len=MIN_LEN, max_len=MAX_LEN)
     last_err = None
     try:
-        for model in GEMINI_MODELS:
+        # Gemini often returns 503 "high demand" for a few minutes; rotate models and back off
+        # (20s, 40s, 80s, 160s, then 5 min) for about 15 minutes before falling back.
+        for attempt, wait in enumerate(GEMINI_WAITS + [0]):
+            model = GEMINI_MODELS[attempt % len(GEMINI_MODELS)]
             try:
                 resp = client.models.generate_content(
                     model=model,
@@ -311,8 +322,8 @@ def find_moments(src, title, duration, work):
                     return clips
             except Exception as e:  # retry / try the next model
                 last_err = e
-                print(f"Gemini {model} failed: {str(e)[:200]}", file=sys.stderr, flush=True)
-                time.sleep(15)
+                print(f"Gemini {model} failed (attempt {attempt + 1}): {str(e)[:200]}", file=sys.stderr, flush=True)
+                time.sleep(wait)
     finally:
         try:
             client.files.delete(name=uploaded.name)
@@ -333,7 +344,7 @@ def _clean(raw, duration):
         end = min(max(end, start + MIN_LEN), start + MAX_LEN, duration)
         if end - start < MIN_LEN - 1 or (clips and start < clips[-1]["end"]):
             continue
-        hook = re.sub(r"[^\w\s?!.,'-]", "", str(c.get("hook", ""))).strip()[:32]
+        hook = _shorten(re.sub(r"[^\w\s?!.,'-]", "", str(c.get("hook", ""))), 32)
         clips.append({"start": start, "end": end, "hook": hook, "caption": str(c.get("caption", "")).strip()})
     return clips[:CLIPS_PER_VIDEO]
 
@@ -341,13 +352,22 @@ def _clean(raw, duration):
 FALLBACK_HASHTAGS = "#viral #foryou #fyp #pakistan #trending"
 
 
+def _shorten(text, limit):
+    """Trim to `limit` characters at a word boundary (no half words)."""
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    window = text[:limit + 1]
+    return window.rsplit(" ", 1)[0] if " " in window else text[:limit]
+
+
 def _evenly_spaced(title, duration):
     """Used when Gemini fails: evenly spaced clips with a basic hook and caption."""
     length = 45
     step = duration / (CLIPS_PER_VIDEO + 1)
     clean_title = " ".join(re.sub(r"[^\w\s]", " ", title).split())
-    hook = clean_title[:28]
-    caption = f"{clean_title[:100]} 🔥 {FALLBACK_HASHTAGS}".strip()
+    hook = _shorten(clean_title, 28)
+    caption = f"{_shorten(clean_title, 100)} 🔥 {FALLBACK_HASHTAGS}".strip()
     return [
         {"start": step * (i + 1), "end": min(step * (i + 1) + length, duration),
          "hook": hook, "caption": caption, "fallback": True}

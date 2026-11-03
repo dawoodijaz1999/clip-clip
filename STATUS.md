@@ -41,3 +41,8 @@ In daily personal use. Discord posting is tested live (PC mode, multiple videos)
 - Bug: clip links returned 404. cleanup_old_releases used the release createdAt, which GitHub sets to the date of the commit the tag points to (2026-10-21), so every new release looked >7 days old and was deleted on the next cleanup (cloud: same run; PC: within the hour). Now uses publishedAt. Verified with a temporary release: kept, link HTTP 200, then removed.
 - Clips from 2026-10-26..29 were deleted and cannot be recovered; re-send those links to regenerate.
 - Delay: the 2026-10-29 link was picked up 3 h later by the cloud schedule (GitHub free-tier delay); use Run workflow for speed.
+
+## 2026-11-03
+- Nov 2 and Nov 3 clips fell back to evenly spaced clips + title captions: Gemini returned 503 "model is experiencing high demand" on all models and the bot gave up after ~1.5 min. Now up to 7 attempts rotating the 3 models with 20/40/80/160/300/300 s pauses (~15 min) before falling back; the audio upload also retries 3 times. Tested with a fake overloaded Gemini (recovers after 3 failures; full fallback after 7).
+- Hooks and fallback captions are cut at a word boundary (was "Engagement of my Boy Love st").
+- Phone-only flow confirmed: cron-job.org triggers clip.yml every 10 min (fine-grained token with Actions read/write + User-Agent header); the 2026-10-30 run posted working links.
