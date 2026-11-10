@@ -492,7 +492,8 @@ def process(job):
         title, files = make_clips(job, work)
         if not files:
             raise RuntimeError("no clips could be made from this video")
-        links = publish(f"clips-{msg_id}", title, files)
+        # timestamp suffix: a retried message must not collide with its earlier release tag
+        links = publish(f"clips-{msg_id}-{int(time.time())}", title, files)
         _say(f"**{title}**\n{len(files)} clips ready (1080x1920). Tap a link to download:", reply_to=msg_id)
         if any(clip.get("fallback") for _, clip in files):
             _say("⚠️ The AI step failed for this video, so these clips are evenly spaced (not the best "
