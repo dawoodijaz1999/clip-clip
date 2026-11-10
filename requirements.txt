@@ -1,4 +1,4 @@
 requests
 yt-dlp[default]
-google-genai
+google-genai==2.31.0
 deno

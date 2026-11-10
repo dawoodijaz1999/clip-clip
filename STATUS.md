@@ -46,3 +46,7 @@ In daily personal use. Discord posting is tested live (PC mode, multiple videos)
 - Nov 2 and Nov 3 clips fell back to evenly spaced clips + title captions: Gemini returned 503 "model is experiencing high demand" on all models and the bot gave up after ~1.5 min. Now up to 7 attempts rotating the 3 models with 20/40/80/160/300/300 s pauses (~15 min) before falling back; the audio upload also retries 3 times. Tested with a fake overloaded Gemini (recovers after 3 failures; full fallback after 7).
 - Hooks and fallback captions are cut at a word boundary (was "Engagement of my Boy Love st").
 - Phone-only flow confirmed: cron-job.org triggers clip.yml every 10 min (fine-grained token with Actions read/write + User-Agent header); the 2026-10-30 run posted working links.
+
+## 2026-11-10
+- AI step failed on jW2QjwYl8ng (cloud run 42788423251): google-genai 3.0.0 (unpinned, installed fresh in the cloud) defaults to API v1, where gemini-flash-latest / gemini-flash-lite-latest return 404; the third model was overloaded (503). Fix: Client forced to api_version v1beta and google-genai pinned to 2.31.0 (the PC version). Checked: SDK 3.0 default is v1, with the option it is v1beta.
+- 2026-11-09 failure emails: 2 runs with 0 jobs during a GitHub Actions incident (18:12 UTC); 298 of the last 300 runs succeeded.

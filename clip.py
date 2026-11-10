@@ -284,7 +284,8 @@ def find_moments(src, title, duration, work):
         ["ffmpeg", "-y", "-v", "error", "-i", str(src), "-vn", "-ac", "1", "-b:a", "32k", str(audio)],
         check=True,
     )
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    # v1beta explicitly: the "-latest" model aliases don't exist on v1, which newer SDKs default to.
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"], http_options={"api_version": "v1beta"})
     uploaded = None
     for wait in (30, 60, 0):
         try:
