@@ -51,3 +51,6 @@ In daily personal use. Discord posting is tested live (PC mode, multiple videos)
 - AI step failed on jW2QjwYl8ng (cloud run 42788423251): google-genai 3.0.0 (unpinned, installed fresh in the cloud) defaults to API v1, where gemini-flash-latest / gemini-flash-lite-latest return 404; the third model was overloaded (503). Fix: Client forced to api_version v1beta and google-genai pinned to 2.31.0 (the PC version). Checked: SDK 3.0 default is v1, with the option it is v1beta.
 - 2026-11-09 failure emails: 2 runs with 0 jobs during a GitHub Actions incident (18:12 UTC); 298 of the last 300 runs succeeded.
 - Retrying the same message failed: gh release create refused the existing tag clips-<msg_id>. Tags are now clips-<msg_id>-<unix time>; tested two publishes for one message.
+
+## 2026-11-13
+- PC mode turned off (systemctl --user disable --now clip-clip): the PC kept grabbing links first and stalled when the laptop slept (lid closed 14:47, ⏳ lock held the cloud off). Cloud only from now on: cron-job.org -> clip.yml every 10 min. Re-enable with `systemctl --user enable --now clip-clip`.
