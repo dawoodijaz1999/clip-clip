@@ -54,3 +54,8 @@ In daily personal use. Discord posting is tested live (PC mode, multiple videos)
 
 ## 2026-11-13
 - PC mode turned off (systemctl --user disable --now clip-clip): the PC kept grabbing links first and stalled when the laptop slept (lid closed 14:47, ⏳ lock held the cloud off). Cloud only from now on: cron-job.org -> clip.yml every 10 min. Re-enable with `systemctl --user enable --now clip-clip`.
+
+## 2026-11-25
+- dDAdJCqCmeI failed: GitHub upload server returned HTTP 502 on clip 3 and gh release create was not retried. publish() now retries 3 times (30 s, 90 s), deleting the half-made release before each retry.
+- hm2lT-LUnSc (2026-11-24) fell back: Gemini 503 on 6 of 7 attempts, and the one answer (attempt 5) was a bare JSON list, which crashed the parser ("list object has no attribute get"). _clips_from_json now accepts {"clips": [...]} or a bare list.
+- Tested: parser variants, upload failing twice then succeeding, failing 3 times, and a real upload (HTTP 200, removed).

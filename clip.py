@@ -318,7 +318,7 @@ def find_moments(src, title, duration, work):
                     contents=[uploaded, prompt],
                     config=types.GenerateContentConfig(response_mime_type="application/json"),
                 )
-                clips = _clean(json.loads(resp.text).get("clips", []), duration)
+                clips = _clean(_clips_from_json(resp.text), duration)
                 if clips:
                     return clips
             except Exception as e:  # retry / try the next model
@@ -332,6 +332,14 @@ def find_moments(src, title, duration, work):
             pass
     print(f"Gemini failed, using evenly spaced clips: {last_err}")
     return _evenly_spaced(title, duration)
+
+
+def _clips_from_json(text):
+    """Gemini usually returns {"clips": [...]} but sometimes a bare list of clips."""
+    data = json.loads(text)
+    if isinstance(data, dict):
+        data = data.get("clips", [])
+    return [c for c in data if isinstance(c, dict)] if isinstance(data, list) else []
 
 
 def _clean(raw, duration):
@@ -437,11 +445,21 @@ def make_clips(job, work):
 
 def publish(tag, title, files):
     repo = os.environ.get("GITHUB_REPOSITORY", DEFAULT_REPO)
-    subprocess.run(
-        ["gh", "release", "create", tag, "-R", repo, *[str(f) for f, _ in files],
-         "--title", title[:100], "--notes", "Auto clips. Deleted after 7 days."],
-        check=True,
-    )
+    # GitHub's upload server sometimes returns 502; retry, removing any half-made release first.
+    for attempt, wait in enumerate((30, 90, 0)):
+        result = subprocess.run(
+            ["gh", "release", "create", tag, "-R", repo, *[str(f) for f, _ in files],
+             "--title", title[:100], "--notes", "Auto clips. Deleted after 7 days."],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            break
+        print(f"Upload attempt {attempt + 1} failed: {result.stderr.strip()[:300]}", file=sys.stderr, flush=True)
+        subprocess.run(["gh", "release", "delete", tag, "-R", repo, "--cleanup-tag", "-y"],
+                       capture_output=True)
+        if not wait:
+            raise RuntimeError(f"GitHub upload failed 3 times: {result.stderr.strip()[:200]}")
+        time.sleep(wait)
     return [f"https://github.com/{repo}/releases/download/{tag}/{f.name}" for f, _ in files]
 
 
