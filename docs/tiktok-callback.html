@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>clip-clip TikTok login</title>
+</head>
+<body style="font-family:sans-serif;max-width:640px;margin:40px auto;padding:0 16px;line-height:1.6">
+<h1>clip-clip</h1>
+<p id="msg">Finishing TikTok login...</p>
+<script>
+  // Hand the one-time login code to the login script running on this computer.
+  var q = new URLSearchParams(location.search);
+  var target = "http://127.0.0.1:8765/callback?" + q.toString();
+  if (q.get("code") || q.get("error")) {
+    location.replace(target);
+  } else {
+    document.getElementById("msg").textContent = "No login code in this link. Start the login again from the terminal.";
+  }
+</script>
+</body>
+</html>
