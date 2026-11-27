@@ -3,7 +3,7 @@
 The first clip of a video is due right away, then one every POST_GAP_HOURS.
 The queue lives in queue.json (committed back to the repo by the workflow).
 Each platform is used only when its secrets are set:
-  Facebook: FB_PAGE_ID, FB_PAGE_TOKEN
+  Facebook: MAKE_WEBHOOK_URL (Make.com scenario that publishes the reel), or FB_PAGE_ID + FB_PAGE_TOKEN
   TikTok:   TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET, TIKTOK_REFRESH_TOKEN
 """
 import json
@@ -16,7 +16,8 @@ from pathlib import Path
 import requests
 
 QUEUE_FILE = Path(__file__).with_name("queue.json")
-POST_GAP_HOURS = 0  # 0 = send all clips at once (user schedules them in TikTok)
+POST_GAP_HOURS = 0  # TikTok drafts: 0 = all at once (user schedules them in TikTok)
+GAP_HOURS = {"tiktok": 0, "facebook": 2}  # per platform: clip 1 at once, then one every N hours
 MAX_TRIES = 3          # per platform, one try per run
 KEEP_DONE_DAYS = 3
 GRAPH = "https://graph.facebook.com/v23.0"
@@ -28,7 +29,8 @@ def _now():
 
 
 def facebook_enabled():
-    return bool(os.environ.get("FB_PAGE_ID") and os.environ.get("FB_PAGE_TOKEN"))
+    return bool(os.environ.get("MAKE_WEBHOOK_URL")
+                or (os.environ.get("FB_PAGE_ID") and os.environ.get("FB_PAGE_TOKEN")))
 
 
 def tiktok_enabled():
@@ -66,7 +68,8 @@ def enqueue(title, items):
             "hook": clip.get("hook", ""),
             "caption": clip.get("caption", ""),
             "n": i + 1,
-            "due": (start + timedelta(hours=POST_GAP_HOURS * i)).isoformat(),
+            "due": {p: (start + timedelta(hours=GAP_HOURS.get(p, POST_GAP_HOURS) * i)).isoformat()
+                    for p in targets},
             "status": {p: "pending" for p in targets},
             "tries": {p: 0 for p in targets},
         })
@@ -74,8 +77,17 @@ def enqueue(title, items):
     return len(items)
 
 
+def _due_at(entry, platform):
+    due = entry["due"]
+    return datetime.fromisoformat(due[platform] if isinstance(due, dict) else due)
+
+
+def _platform_due(entry, platform, now):
+    return entry["status"].get(platform) == "pending" and _due_at(entry, platform) <= now
+
+
 def _due(entry, now):
-    return datetime.fromisoformat(entry["due"]) <= now and "pending" in entry["status"].values()
+    return any(_platform_due(entry, p, now) for p in entry["status"])
 
 
 def has_due():
@@ -84,6 +96,16 @@ def has_due():
 
 
 # ---------------------------------------------------------------- Facebook Reels
+
+def post_facebook_via_make(entry):
+    """Hand the clip URL to the Make.com scenario, which publishes it as a Page reel."""
+    r = requests.post(os.environ["MAKE_WEBHOOK_URL"], timeout=60, json={
+        "video_url": entry["url"], "caption": entry["caption"] or entry["hook"],
+        "hook": entry["hook"], "title": entry["title"], "n": entry["n"],
+    })
+    if r.status_code != 200:
+        raise RuntimeError(f"Make webhook returned HTTP {r.status_code}: {r.text[:200]}")
+
 
 def post_facebook(path, caption):
     page, token = os.environ["FB_PAGE_ID"], os.environ["FB_PAGE_TOKEN"]
@@ -162,7 +184,8 @@ def post_tiktok_draft(path):
 # ---------------------------------------------------------------- Run due posts
 
 POSTERS = {
-    "facebook": lambda path, e: post_facebook(path, e["caption"] or e["hook"]),
+    "facebook": lambda path, e: (post_facebook_via_make(e) if os.environ.get("MAKE_WEBHOOK_URL")
+                                 else post_facebook(path, e["caption"] or e["hook"])),
     "tiktok": lambda path, e: post_tiktok_draft(path),
 }
 
@@ -185,7 +208,7 @@ def post_due(say):
                 print(f"Could not fetch {entry['url']}: {e}", file=sys.stderr)
                 continue  # try again next run
             for platform, state in list(entry["status"].items()):
-                if state != "pending" or platform not in platforms():
+                if not _platform_due(entry, platform, now) or platform not in platforms():
                     continue
                 changed = True
                 entry["tries"][platform] = entry["tries"].get(platform, 0) + 1
@@ -193,7 +216,7 @@ def post_due(say):
                     POSTERS[platform](path, entry)
                     entry["status"][platform] = "done"
                     if platform == "facebook":
-                        say(f"✅ Clip {entry['n']} posted to Facebook - {entry['hook']}")
+                        say(f"✅ Clip {entry['n']} sent to Facebook - {entry['hook']}")
                     else:
                         say(f"📲 Clip {entry['n']} is in your TikTok inbox - open TikTok and tap Post.\n"
                             f"Caption to paste: {entry['caption'] or entry['hook']}")
@@ -205,7 +228,7 @@ def post_due(say):
                             f"{MAX_TRIES} tries: {str(e)[:200]}")
     cutoff = now - timedelta(days=KEEP_DONE_DAYS)
     kept = [e for e in queue
-            if "pending" in e["status"].values() or datetime.fromisoformat(e["due"]) > cutoff]
+            if "pending" in e["status"].values() or max(_due_at(e, p) for p in e["status"]) > cutoff]
     if changed or len(kept) != len(queue):
         save_queue(kept)
         return True
