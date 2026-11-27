@@ -68,11 +68,11 @@
   },
   "status": {
    "tiktok": "done",
-   "facebook": "pending"
+   "facebook": "done"
   },
   "tries": {
    "tiktok": 1,
-   "facebook": 0
+   "facebook": 1
   }
  },
  {
