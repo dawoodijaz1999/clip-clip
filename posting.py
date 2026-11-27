@@ -147,9 +147,13 @@ def _tiktok_access_token():
 
 
 def _chunks(size):
-    """TikTok wants 5-64 MB chunks; one chunk if the file is small, last chunk takes the remainder."""
+    """TikTok wants 5-64 MB chunks (decimal MB); last chunk takes the remainder.
+
+    Files up to 20 MB go in one piece; bigger ones in 10 MB pieces. A 61 MiB clip sent as one
+    chunk is 64.4 million bytes, which TikTok accepted but never finished processing.
+    """
     mb = 1024 * 1024
-    if size <= 64 * mb:
+    if size <= 20 * mb:
         return size, 1
     chunk = 10 * mb
     return chunk, size // chunk
