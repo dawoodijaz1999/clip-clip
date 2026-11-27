@@ -34,8 +34,12 @@ def facebook_enabled():
                 or (os.environ.get("FB_PAGE_ID") and os.environ.get("FB_PAGE_TOKEN")))
 
 
+TIKTOK_DRAFTS = False  # off: the user uploads and schedules TikTok clips in TikTok Studio
+
+
 def tiktok_enabled():
-    return all(os.environ.get(k) for k in ("TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REFRESH_TOKEN"))
+    return TIKTOK_DRAFTS and all(
+        os.environ.get(k) for k in ("TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REFRESH_TOKEN"))
 
 
 def platforms():
