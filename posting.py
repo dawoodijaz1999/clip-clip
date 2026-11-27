@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -178,7 +179,27 @@ def post_tiktok_draft(path):
             })
             if r.status_code not in (200, 201, 206):
                 raise RuntimeError(f"TikTok chunk upload failed: HTTP {r.status_code} {r.text[:200]}")
-    return body["data"].get("publish_id")
+    publish_id = body["data"].get("publish_id")
+    status = _tiktok_wait(token, publish_id)
+    print(f"TikTok draft {publish_id}: {status}", flush=True)
+    return publish_id
+
+
+def _tiktok_wait(token, publish_id, tries=12):
+    """Ask TikTok until the draft reaches the inbox; raise if TikTok reports a failure."""
+    status = "unknown"
+    for _ in range(tries):
+        r = requests.post(f"{TIKTOK}/post/publish/status/fetch/", timeout=60,
+                          headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                          json={"publish_id": publish_id})
+        data = r.json().get("data", {})
+        status = data.get("status", "unknown")
+        if status == "FAILED":
+            raise RuntimeError(f"TikTok could not process the video: {data.get('fail_reason', 'unknown reason')}")
+        if status in ("SEND_TO_USER_INBOX", "PUBLISH_COMPLETE"):
+            return status
+        time.sleep(10)
+    return status
 
 
 # ---------------------------------------------------------------- Run due posts
