@@ -16,7 +16,7 @@ from pathlib import Path
 import requests
 
 QUEUE_FILE = Path(__file__).with_name("queue.json")
-POST_GAP_HOURS = 2
+POST_GAP_HOURS = 0  # 0 = send all clips at once (user schedules them in TikTok)
 MAX_TRIES = 3          # per platform, one try per run
 KEEP_DONE_DAYS = 3
 GRAPH = "https://graph.facebook.com/v23.0"

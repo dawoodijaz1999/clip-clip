@@ -527,7 +527,10 @@ def process(job):
         scheduled = posting.enqueue(title, [(url, clip) for url, (_, clip) in zip(links, files)])
         if scheduled:
             where = " and ".join(p.title() for p in posting.platforms())
-            _say(f"🗓️ Auto-posting to {where}: clip 1 now, then one every {posting.POST_GAP_HOURS} hours.")
+            if posting.POST_GAP_HOURS:
+                _say(f"🗓️ Auto-posting to {where}: clip 1 now, then one every {posting.POST_GAP_HOURS} hours.")
+            else:
+                _say(f"📤 Sending all {scheduled} clips to {where} now.")
         _react(msg_id, DONE)
     except Exception as e:
         print(f"Failed {job['key']}: {e}", file=sys.stderr)
