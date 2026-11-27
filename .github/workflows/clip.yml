@@ -44,6 +44,12 @@ jobs:
       - id: check
         if: inputs.test_url == ''
         run: python clip.py --check
+        env:
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
       - if: steps.check.outputs.has_work == 'true'
         uses: denoland/setup-deno@v2
       - if: steps.check.outputs.has_work == 'true'
@@ -56,3 +62,18 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
           GH_TOKEN: ${{ github.token }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+      - if: always() && steps.check.outputs.has_work == 'true'
+        name: Save post queue
+        run: |
+          if [ -n "$(git status --porcelain queue.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add queue.json
+            git commit -q -m "Update post queue"
+            git pull -q --rebase && git push -q
+          fi

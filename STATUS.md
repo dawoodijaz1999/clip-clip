@@ -59,3 +59,8 @@ In daily personal use. Discord posting is tested live (PC mode, multiple videos)
 - dDAdJCqCmeI failed: GitHub upload server returned HTTP 502 on clip 3 and gh release create was not retried. publish() now retries 3 times (30 s, 90 s), deleting the half-made release before each retry.
 - hm2lT-LUnSc (2026-11-24) fell back: Gemini 503 on 6 of 7 attempts, and the one answer (attempt 5) was a bare JSON list, which crashed the parser ("list object has no attribute get"). _clips_from_json now accepts {"clips": [...]} or a bare list.
 - Tested: parser variants, upload failing twice then succeeding, failing 3 times, and a real upload (HTTP 200, removed).
+
+## 2026-11-27
+- Auto-posting (posting.py): after clips are published they are queued in queue.json (committed by the workflow). Clip 1 is due at once, then one every 2 h. Facebook Page: Reels API (start/upload/finish, Graph v23.0), fully automatic. TikTok: inbox draft via Content Posting API FILE_UPLOAD (unaudited apps cannot post publicly); the caption cannot be pre-filled, so Discord gets the caption to paste. Each platform is used only when its secrets exist (FB_PAGE_ID, FB_PAGE_TOKEN / TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET, TIKTOK_REFRESH_TOKEN). 3 tries per platform per clip, then a Discord error.
+- Tested offline with fake APIs: 0/2/4/6/8 h schedule, Facebook failure retried on next run, TikTok chunking (40 MB -> 1 chunk, 130 MB -> 13 x 10 MB).
+- Not yet tested against the real Facebook/TikTok APIs (needs the user's app setup).

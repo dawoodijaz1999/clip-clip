@@ -22,6 +22,8 @@ from pathlib import Path
 
 import requests
 
+import posting
+
 API = "https://discord.com/api/v10"
 YT_RE = re.compile(
     r"https?://(?:www\.|m\.)?(?:youtube\.com/(?:watch\?(?:\S*&)?v=|shorts/|live/)|youtu\.be/)([\w-]{11})"
@@ -522,6 +524,10 @@ def process(job):
                 f"{url}\n"
                 f"Caption: {clip['caption'] or '-'}"
             )
+        scheduled = posting.enqueue(title, [(url, clip) for url, (_, clip) in zip(links, files)])
+        if scheduled:
+            where = " and ".join(p.title() for p in posting.platforms())
+            _say(f"🗓️ Auto-posting to {where}: clip 1 now, then one every {posting.POST_GAP_HOURS} hours.")
         _react(msg_id, DONE)
     except Exception as e:
         print(f"Failed {job['key']}: {e}", file=sys.stderr)
@@ -574,7 +580,7 @@ def main():
             print(f"{f}  {_fmt(c['start'])}-{_fmt(c['end'])}  {c['hook']}  |  {c['caption']}")
         return
     if args[:1] == ["--check"]:
-        has_work = bool(pending_jobs())
+        has_work = bool(pending_jobs()) or posting.has_due()
         print(f"has_work={'true' if has_work else 'false'}")
         if os.environ.get("GITHUB_OUTPUT"):
             with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
@@ -582,6 +588,7 @@ def main():
         return
     for job in pending_jobs()[:MAX_LINKS_PER_RUN]:
         process(job)
+    posting.post_due(_say)
     cleanup_old_releases()
 
 
