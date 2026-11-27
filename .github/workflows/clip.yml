@@ -10,6 +10,10 @@ on:
         description: "Only test downloading this YouTube link (checks the cookies)"
         required: false
         default: ""
+      test_tiktok:
+        description: "Only test: send this clip URL to the TikTok inbox as a draft"
+        required: false
+        default: ""
 permissions:
   contents: write
 concurrency:
@@ -41,8 +45,18 @@ jobs:
           printf '%s\n' "$YT_COOKIES" > cookies.txt
           yt-dlp --cookies cookies.txt -f "bv*[height<=1080]+ba/b" --download-sections "*0-20" -o test.mp4 "$TEST_URL"
           ls -lh test.*
+      - if: inputs.test_tiktok != ''
+        name: Test TikTok draft upload
+        env:
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+          TEST_TIKTOK: ${{ inputs.test_tiktok }}
+        run: |
+          curl -sSfL -o test_clip.mp4 "$TEST_TIKTOK"
+          python -c "import posting, pathlib; print('publish_id:', posting.post_tiktok_draft(pathlib.Path('test_clip.mp4')))"
       - id: check
-        if: inputs.test_url == ''
+        if: inputs.test_url == '' && inputs.test_tiktok == ''
         run: python clip.py --check
         env:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
